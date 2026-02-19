@@ -1,28 +1,85 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-const { syncJsonSources } = require("./sync-json-sources.cjs");
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
+const ZODIAC_RUBY_BY_ID = {
+  1: "ね",
+  2: "うし",
+  3: "とら",
+  4: "う",
+  5: "たつ",
+  6: "へび",
+  7: "うま",
+  8: "ひつじ",
+  9: "さる",
+  10: "とり",
+  11: "いぬ",
+  12: "い",
+};
 
 function buildDatabase() {
   const rootDir = path.resolve(__dirname, "..");
-  const jsonDir = path.join(rootDir, "data", "json");
+  const sourcePath = path.join(rootDir, "client", "public", "data", "database.json");
   const dbDir = path.join(rootDir, "data", "db");
-  const dbPath = path.join(dbDir, "content.sqlite");
+  const dbPath = path.join(dbDir, "database.sqlite");
 
-  const syncedCounts = syncJsonSources();
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Source JSON not found: ${sourcePath}`);
+  }
 
-  const zodiacs = readJson(path.join(jsonDir, "zodiacs.json"));
-  const blessings = readJson(path.join(jsonDir, "blessings.json"));
-  const spots = readJson(path.join(jsonDir, "spots.json"));
-  const spotBlessing = readJson(path.join(jsonDir, "spot_blessing.json"));
-  const proverbs = readJson(path.join(jsonDir, "proverbs.json"));
-  const zodiacProverb = readJson(path.join(jsonDir, "zodiac_proverb.json"));
-  const aboutTerms = readJson(path.join(jsonDir, "about_terms.json"));
-  const featuredBlessings = readJson(path.join(jsonDir, "featured_blessings.json"));
+  const source = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+
+  const zodiacs = (source.zodiacs || []).map((item) => ({
+    zodiacID: Number(item.zodiacID),
+    name: item.name,
+    animal: item.animal,
+    ruby: item.ruby || ZODIAC_RUBY_BY_ID[Number(item.zodiacID)] || "",
+  }));
+
+  const blessings = (source.blessings || []).map((item) => ({
+    blessingID: Number(item.blessingID || item.bleesingID),
+    blessing: item.blessing,
+    blessingEn: item.blessingEn || "",
+  }));
+
+  const spots = (source.spots || []).map((item) => ({
+    spotID: Number(item.spotID),
+    zodiacID: Number(item.zodiacID),
+    spot: item.spot,
+    spotHiragana: item.spotHiragana || "",
+    addr: item.addr || "",
+    spotCatch: item.spotCatch || "",
+    spotDesc: item.spotDesc || "",
+    spotSite: item.spotSite || item["Unnamed: 7"] || "",
+  }));
+
+  const spotBlessing = (source.spot_blessing || []).map((item) => ({
+    spotID: Number(item.spotID),
+    blessingID: Number(item.blessingID || item.bleesingID),
+  }));
+
+  const proverbs = (source.proverbs || []).map((item) => ({
+    proverbID: Number(item.proverbID),
+    proverb: item.proverb || "",
+    hiragana: item.hiragana || "",
+    proverbDesc: item.proverbDesc || "",
+  }));
+
+  const zodiacProverb = (source.zodiac_proverb || []).map((item) => ({
+    zodiacID: Number(item.zodiacID),
+    proverbID: Number(item.proverbID),
+  }));
+
+  const aboutTerms = (source.about_terms || []).map((item) => ({
+    term: item.term,
+    ruby: item.ruby || "",
+    termDesc: item.termDesc || "",
+    sortOrder: Number(item.sortOrder),
+  }));
+
+  if (!aboutTerms.length) {
+    throw new Error("`about_terms` is missing or empty in client/public/data/database.json");
+  }
 
   fs.mkdirSync(dbDir, { recursive: true });
 
@@ -33,7 +90,6 @@ function buildDatabase() {
 
     DROP TABLE IF EXISTS spot_blessing;
     DROP TABLE IF EXISTS zodiac_proverb;
-    DROP TABLE IF EXISTS featured_blessings;
     DROP TABLE IF EXISTS about_terms;
     DROP TABLE IF EXISTS spots;
     DROP TABLE IF EXISTS blessings;
@@ -93,13 +149,6 @@ function buildDatabase() {
       sortOrder INTEGER NOT NULL
     );
 
-    CREATE TABLE featured_blessings (
-      sortOrder INTEGER PRIMARY KEY,
-      toPath TEXT NOT NULL,
-      image TEXT NOT NULL,
-      alt TEXT NOT NULL
-    );
-
     CREATE INDEX idx_spots_zodiac ON spots(zodiacID);
     CREATE INDEX idx_spot_blessing_blessing ON spot_blessing(blessingID);
     CREATE INDEX idx_zodiac_proverb_proverb ON zodiac_proverb(proverbID);
@@ -127,9 +176,6 @@ function buildDatabase() {
   );
   const insertAboutTerm = db.prepare(
     "INSERT INTO about_terms (term, ruby, termDesc, sortOrder) VALUES (?, ?, ?, ?)"
-  );
-  const insertFeaturedBlessing = db.prepare(
-    "INSERT INTO featured_blessings (sortOrder, toPath, image, alt) VALUES (?, ?, ?, ?)"
   );
 
   db.exec("BEGIN");
@@ -171,10 +217,6 @@ function buildDatabase() {
       insertAboutTerm.run(item.term, item.ruby, item.termDesc, item.sortOrder);
     }
 
-    for (const item of featuredBlessings) {
-      insertFeaturedBlessing.run(item.sortOrder, item.to, item.image, item.alt);
-    }
-
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -185,7 +227,7 @@ function buildDatabase() {
 
   return {
     dbPath,
-    syncedCounts,
+    sourcePath,
     inserted: {
       zodiacs: zodiacs.length,
       blessings: blessings.length,
@@ -194,7 +236,6 @@ function buildDatabase() {
       proverbs: proverbs.length,
       zodiac_proverb: zodiacProverb.length,
       about_terms: aboutTerms.length,
-      featured_blessings: featuredBlessings.length,
     },
   };
 }

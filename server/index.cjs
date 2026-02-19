@@ -5,7 +5,7 @@ const { URL } = require("node:url");
 const { DatabaseSync } = require("node:sqlite");
 
 const PORT = Number(process.env.PORT || 8787);
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, "..", "data", "db", "content.sqlite");
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "..", "data", "db", "database.sqlite");
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
@@ -54,9 +54,6 @@ const qRandomProverb = db.prepare(
 const qAboutTerms = db.prepare(
   "SELECT term, ruby, termDesc FROM about_terms ORDER BY sortOrder"
 );
-const qFeaturedBlessings = db.prepare(
-  "SELECT toPath, image, alt FROM featured_blessings ORDER BY sortOrder"
-);
 
 function handleApi(req, res, pathname) {
   if (req.method === "OPTIONS") {
@@ -81,11 +78,6 @@ function handleApi(req, res, pathname) {
 
   if (pathname === "/api/zodiacs") {
     sendJson(res, 200, qAllZodiacs.all());
-    return;
-  }
-
-  if (pathname === "/api/featured-blessings") {
-    sendJson(res, 200, qFeaturedBlessings.all());
     return;
   }
 
