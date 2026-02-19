@@ -1,0 +1,58 @@
+name: Build and Deploy to AWS
+
+on:
+  push:
+    branches: [ main ] # Ganti kalo branch utama lo namanya 'master'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      # --- FRONTEND DEPLOY ---
+      - name: Build Frontend
+        run: |
+          cd client
+          npm install
+          npm run build
+
+      - name: Upload to S3
+        run: |
+          aws s3 sync client/dist/ s3://rin-12mode-frontend-storage --delete
+
+      # --- BACKEND DEPLOY ---
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: 12mode-backend
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # --- RESTART BACKEND DI EC2 ---
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }} # IP Public EC2 lo nanti
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }} # Isi file .pem lo
+          script: |
+            aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            docker pull ${{ steps.login-ecr.outputs.registry }}/12mode-backend:latest
+            docker stop backend || true
+            docker rm backend || true
+            docker run -d --name backend -p 8787:8787 ${{ steps.login-ecr.outputs.registry }}/12mode-backend:latest

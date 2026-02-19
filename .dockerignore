@@ -1,0 +1,8 @@
+node_modules
+client/node_modules
+client/dist
+.git
+.terraform
+terraform
+*.log
+.env
